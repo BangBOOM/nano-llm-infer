@@ -17,6 +17,7 @@ with open(config_path, "r", encoding="utf-8") as f:
 
 model = Qwen3(qwen3_config).bfloat16()
 model.load_weight(model_path)
+model = model.eval()
 generated_token = ""
 prompts = ["list all prime numbers within 100"]
 prompts = [
@@ -28,12 +29,21 @@ prompts = [
         )
         for prompt in prompts
     ]
-for _ in tqdm(range(100)):
-    prompts[0] += generated_token
 
-    input_ids = tokenizer(prompts, return_tensors="pt")["input_ids"]
-    positions = torch.tensor(list(range(input_ids.shape[-1])), dtype=torch.int)
+# prefill
+input_ids = tokenizer(prompts, return_tensors="pt")["input_ids"]
+positions = torch.tensor(list(range(input_ids.shape[-1])), dtype=torch.int)
+predict_tokens = model(input_ids, positions, is_prefill=True)
+generated_token = tokenizer.decode(predict_tokens)
+res = ""
+res += generated_token
+position_id = positions[-1]
+for _ in tqdm(range(200)):
+    position_id += 1
+    output = [generated_token]
+    input_ids = tokenizer(output, return_tensors="pt")["input_ids"]
+    positions = torch.tensor([position_id], dtype=torch.int)
     predict_tokens = model(input_ids, positions)
     generated_token = tokenizer.decode(predict_tokens)
-
-print(prompts[0])
+    res += generated_token
+print(res)

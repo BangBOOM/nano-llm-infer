@@ -77,7 +77,7 @@ class Qwen3(nn.Module):
         self.model_norm = nn.Parameter(torch.empty(config.hidden_size))
         self.lm_head = nn.Parameter(torch.empty(config.vocab_size, config.hidden_size))
 
-        self.register_buffer("kv_cache", torch.zeros(config.num_hidden_layers, 2, config.num_key_value_heads, config.head_dim))
+        self.register_buffer("kv_cache", torch.zeros(config.num_hidden_layers, 2, config.num_key_value_heads, config.max_position_embeddings, config.head_dim))
 
         self.rope = get_rope(
             config.head_dim,
@@ -116,12 +116,13 @@ class Qwen3(nn.Module):
         logger.info("Model Loaded")
 
 
-    def forward(self, input_ids:torch.Tensor, positions:torch.Tensor):
+    def forward(self, input_ids:torch.Tensor, positions:torch.Tensor, is_prefill=False):
         rms_norm_eps = self.config.rms_norm_eps
         hidden_states = self.embed_tokens(input_ids)
         residual = None
 
         batch_size, seqlen, _ = hidden_states.shape
+        assert batch_size == 1, "Currently only support singual request"
         head_dim = self.config.head_dim
         num_attention_heads = self.config.num_attention_heads
         num_key_value_heads = self.config.num_key_value_heads
@@ -142,11 +143,19 @@ class Qwen3(nn.Module):
             k = rms_norm(k, self.k_norm[i].data, rms_norm_eps)
             q, k = self.rope(positions, q, k)
 
+            # batch, head_cnt, seq_len, head_dim
             q = q.permute(0, 2, 1, 3)
             k = k.permute(0, 2, 1, 3)
             v = v.permute(0, 2, 1, 3)
 
-            o = F.scaled_dot_product_attention(q, k, v, is_causal=True, enable_gqa=True)
+            self.kv_cache[i][0][:, positions, :] = k
+            self.kv_cache[i][1][:, positions, :] = v
+
+            k = self.kv_cache[i][0][:, :positions[-1]+1, :]
+            v = self.kv_cache[i][1][:, :positions[-1]+1, :]
+
+            o = F.scaled_dot_product_attention(q, k, v, is_causal=is_prefill, enable_gqa=True)
+
             hidden_states = torch.einsum('bhsd,ohd->bso', o, self.o_projs[i].data.view(-1, num_attention_heads, head_dim))
 
             # Post Attention Norm
