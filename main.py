@@ -2,7 +2,6 @@ import json
 from dataclasses import fields
 
 import torch
-from tqdm import tqdm
 from transformers import AutoTokenizer
 
 from model import Qwen3, Qwen3Config
@@ -25,7 +24,7 @@ prompts = [
             [{"role": "user", "content": prompt}],
             tokenize=False,
             add_generation_prompt=True,
-            enable_thinking=True
+            enable_thinking=False
         )
         for prompt in prompts
     ]
@@ -38,7 +37,8 @@ generated_token = tokenizer.decode(predict_tokens)
 res = ""
 res += generated_token
 position_id = positions[-1]
-for _ in tqdm(range(200)):
+
+while position_id < 2048:
     position_id += 1
     output = [generated_token]
     input_ids = tokenizer(output, return_tensors="pt")["input_ids"]
@@ -46,4 +46,7 @@ for _ in tqdm(range(200)):
     predict_tokens = model(input_ids, positions)
     generated_token = tokenizer.decode(predict_tokens)
     res += generated_token
-print(res)
+    if predict_tokens == tokenizer.eos_token_id:
+        break
+    print(generated_token, end="", flush=True)
+# print(res)
