@@ -115,7 +115,7 @@ class Qwen3(nn.Module):
 
         logger.info("Model Loaded")
 
-
+    @torch.no_grad()
     def forward(self, input_ids:torch.Tensor, positions:torch.Tensor, is_prefill=False):
         rms_norm_eps = self.config.rms_norm_eps
         hidden_states = self.embed_tokens(input_ids)
