@@ -15,7 +15,8 @@ process one batch a time
 ## TODO
 
 ### Stage 1
-1. Support multi batch inference: a sequence manager is needed to manage the position of a sequence and kvcache
+1. Support multi round chat
+2. Support multi batch inference: a sequence manager is needed to manage the position of a sequence and kvcache
 
 ### Stage 2
 1. PageAttention KVCache Support
