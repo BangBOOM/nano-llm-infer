@@ -1,6 +1,11 @@
 # NANO-LLM-Inference
 
-Development efficiency is the first citizen in this project
+Development efficiency is the first citizen in this project and native support Ascend NPU
+
+## v0.0.3
+
+support qwen3 dense and sparse models
+
 
 ## v0.0.2
 use kvcache, do not need to recompute the previous tokens
@@ -19,11 +24,10 @@ process one batch a time
 2. Support multi batch inference: a sequence manager is needed to manage the position of a sequence and kvcache
 
 ### Stage 2
-1. PageAttention KVCache Support
+1. Distributed Inference with MoE EP
 
 ### Stage 3
-1. Distributed Inference with TP
-2. Distributed Inference with EP
+1. PageAttention KVCache Support
 
 ## Usage
 
