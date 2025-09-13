@@ -65,6 +65,17 @@ class RotaryEmbedding(nn.Module):
         key = apply_rotary_emb(key, cos, sin).view(key_shape)
         return query, key
 
+@lru_cache(1)
+def get_rope(
+    head_size: int,
+    rotary_dim: int,
+    max_position: int,
+    base: float,
+    rope_scaling: dict | None = None,
+):
+    assert rope_scaling is None
+    rotary_emb = RotaryEmbedding(head_size, rotary_dim, max_position, base)
+    return rotary_emb
 
 def add_rms_norm(x, residual, weight, eps)->tuple[torch.Tensor, torch.Tensor]:
     orig_dtype = x.dtype
