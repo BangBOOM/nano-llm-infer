@@ -65,7 +65,6 @@ class RotaryEmbedding(nn.Module):
         key = apply_rotary_emb(key, cos, sin).view(key_shape)
         return query, key
 
-@lru_cache(1)
 def get_rope(
     head_size: int,
     rotary_dim: int,
