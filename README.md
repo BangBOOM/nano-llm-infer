@@ -41,3 +41,4 @@ base_path = "xxx/Qwen3-0.6B/"
 config_path = base_path + "config.json"
 model_path = base_path + "model.safetensors"
 ```
+中文显示效果测试
