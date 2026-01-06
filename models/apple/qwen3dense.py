@@ -240,9 +240,9 @@ class Qwen3(nn.Module):
 
             # Update KV cache
             k_cache, v_cache = self.kv_cache[i]
-            for pos_idx, pos in enumerate(positions):
-                k_cache[:, pos, :] = k[0, :, pos_idx, :]
-                v_cache[:, pos, :] = v[0, :, pos_idx, :]
+            # Vectorized approach
+            k_cache[:, positions, :] = k[0, :, :, :]
+            v_cache[:, positions, :] = v[0, :, :, :]
 
             # Retrieve cached keys and values
             max_pos = int(positions[-1]) + 1
@@ -256,8 +256,9 @@ class Qwen3(nn.Module):
             # Note: mx.fast.scaled_dot_product_attention natively supports GQA
 
             # Add batch dimension to k and v
-            k_cached = mx.expand_dims(k_cached, axis=0)
-            v_cached = mx.expand_dims(v_cached, axis=0)
+            k_cached = k_cached.reshape(1, num_key_value_heads, -1, head_dim)
+            v_cached = v_cached.reshape(1, num_key_value_heads, -1, head_dim)
+
 
             # Create causal mask for prefill
             mask = None
