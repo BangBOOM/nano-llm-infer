@@ -154,8 +154,20 @@ class Qwen3(nn.Module):
             for _ in range(config.num_hidden_layers)
         ]
 
+        # Transposed weights for faster matmul
+        self.q_projs_t = [None for _ in range(config.num_hidden_layers)]
+        self.k_projs_t = [None for _ in range(config.num_hidden_layers)]
+        self.v_projs_t = [None for _ in range(config.num_hidden_layers)]
+        self.o_projs_t = [None for _ in range(config.num_hidden_layers)]
+        self.qkv_proj_t = [None for _ in range(config.num_hidden_layers)]
+        self.mlp_gate_proj_t = [None for _ in range(config.num_hidden_layers)]
+        self.mlp_up_proj_t = [None for _ in range(config.num_hidden_layers)]
+        self.mlp_down_proj_t = [None for _ in range(config.num_hidden_layers)]
+
+        self.attn_scale = 1 / (config.head_dim ** 0.5)
         self.model_norm = mx.zeros((config.hidden_size,))
         self.lm_head = mx.zeros((config.vocab_size, config.hidden_size))
+        self.lm_head_t = None
 
         # KV cache initialization
         self.kv_cache = [
@@ -186,6 +198,13 @@ class Qwen3(nn.Module):
                 self.k_projs[i] = mx.array(f.get_tensor(f"model.layers.{i}.self_attn.k_proj.weight"))
                 self.v_projs[i] = mx.array(f.get_tensor(f"model.layers.{i}.self_attn.v_proj.weight"))
                 self.o_projs[i] = mx.array(f.get_tensor(f"model.layers.{i}.self_attn.o_proj.weight"))
+                self.q_projs_t[i] = mx.transpose(self.q_projs[i])
+                self.k_projs_t[i] = mx.transpose(self.k_projs[i])
+                self.v_projs_t[i] = mx.transpose(self.v_projs[i])
+                self.o_projs_t[i] = mx.transpose(self.o_projs[i])
+                self.qkv_proj_t[i] = mx.transpose(
+                    mx.concatenate([self.q_projs[i], self.k_projs[i], self.v_projs[i]], axis=0)
+                )
 
                 self.q_norm[i] = mx.array(f.get_tensor(f"model.layers.{i}.self_attn.q_norm.weight"))
                 self.k_norm[i] = mx.array(f.get_tensor(f"model.layers.{i}.self_attn.k_norm.weight"))
@@ -195,9 +214,13 @@ class Qwen3(nn.Module):
                 self.mlp_gate_proj[i] = mx.array(f.get_tensor(f"model.layers.{i}.mlp.gate_proj.weight"))
                 self.mlp_up_proj[i] = mx.array(f.get_tensor(f"model.layers.{i}.mlp.up_proj.weight"))
                 self.mlp_down_proj[i] = mx.array(f.get_tensor(f"model.layers.{i}.mlp.down_proj.weight"))
+                self.mlp_gate_proj_t[i] = mx.transpose(self.mlp_gate_proj[i])
+                self.mlp_up_proj_t[i] = mx.transpose(self.mlp_up_proj[i])
+                self.mlp_down_proj_t[i] = mx.transpose(self.mlp_down_proj[i])
 
             self.model_norm = mx.array(f.get_tensor("model.norm.weight"))
             self.lm_head = mx.array(f.get_tensor("lm_head.weight"))
+            self.lm_head_t = mx.transpose(self.lm_head)
 
         logger.info("Model Loaded")
 
@@ -222,9 +245,10 @@ class Qwen3(nn.Module):
             )
 
             # Attention
-            q = mx.einsum('bsh,oh->bso', hidden_states, self.q_projs[i])
-            k = mx.einsum('bsh,oh->bso', hidden_states, self.k_projs[i])
-            v = mx.einsum('bsh,oh->bso', hidden_states, self.v_projs[i])
+            qkv = mx.matmul(hidden_states, self.qkv_proj_t[i])
+            q_end = num_attention_heads * head_dim
+            kv_end = q_end + num_key_value_heads * head_dim
+            q, k, v = mx.split(qkv, [q_end, kv_end], axis=-1)
             q = q.reshape(batch_size, seqlen, num_attention_heads, head_dim)
             k = k.reshape(batch_size, seqlen, num_key_value_heads, head_dim)
             v = v.reshape(batch_size, seqlen, num_key_value_heads, head_dim)
@@ -269,15 +293,12 @@ class Qwen3(nn.Module):
 
             o = mx.fast.scaled_dot_product_attention(
                 q, k_cached, v_cached,
-                scale=1/head_dim**0.5,
+                scale=self.attn_scale,
                 mask=mask
             )
 
-            hidden_states = mx.einsum(
-                'bhsd,ohd->bso',
-                o,
-                self.o_projs[i].reshape(-1, num_attention_heads, head_dim)
-            )
+            o = mx.transpose(o, (0, 2, 1, 3)).reshape(batch_size, seqlen, -1)
+            hidden_states = mx.matmul(o, self.o_projs_t[i])
 
             # Post Attention Norm
             hidden_states, residual = add_rms_norm(
@@ -285,10 +306,10 @@ class Qwen3(nn.Module):
             )
 
             # MLP
-            hidden_states_gate = mx.einsum('bsh,oh->bso', hidden_states, self.mlp_gate_proj[i])
-            hidden_states_up = mx.einsum('bsh,oh->bso', hidden_states, self.mlp_up_proj[i])
+            hidden_states_gate = mx.matmul(hidden_states, self.mlp_gate_proj_t[i])
+            hidden_states_up = mx.matmul(hidden_states, self.mlp_up_proj_t[i])
             hidden_states = nn.silu(hidden_states_gate) * hidden_states_up
-            hidden_states = mx.einsum('bsh,oh->bso', hidden_states, self.mlp_down_proj[i])
+            hidden_states = mx.matmul(hidden_states, self.mlp_down_proj_t[i])
 
         hidden_states, _ = add_rms_norm(
             hidden_states, residual, self.model_norm, rms_norm_eps
@@ -297,7 +318,7 @@ class Qwen3(nn.Module):
         # Compute Logits
         hidden_states = hidden_states[:, -1, :]
         # hidden_states = mx.squeeze(hidden_states, axis=1)
-        logits = mx.einsum('bh,vh->bv', hidden_states, self.lm_head)
+        logits = mx.matmul(hidden_states, self.lm_head_t)
 
         # greedy sample
         return mx.argmax(logits, axis=-1)

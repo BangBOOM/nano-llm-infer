@@ -36,9 +36,9 @@ print(input_ids)
 
 positions = mx.array(list(range(input_ids.shape[-1])), dtype=mx.int32)
 predict_tokens = model(input_ids, positions, is_prefill=True)
-predict_tokens = int(predict_tokens.item())
+generated_token_id = int(predict_tokens.item())
 
-generated_token = tokenizer.decode(predict_tokens)
+generated_token = tokenizer.decode(generated_token_id)
 res = ""
 res += generated_token
 position_id = int(positions[-1].item())
@@ -47,15 +47,13 @@ print("Done Prefill")
 
 while position_id < 2048:
     position_id += 1
-    output = [generated_token]
-    input_ids = tokenizer(output, return_tensors="pt")["input_ids"]
-    input_ids = mx.array(input_ids.numpy())
+    input_ids = mx.array([[generated_token_id]], dtype=mx.int32)
     positions = mx.array([position_id], dtype=mx.int32)
     predict_tokens = model(input_ids, positions)
-    predict_tokens = int(predict_tokens.item())
-    generated_token = tokenizer.decode(predict_tokens)
+    generated_token_id = int(predict_tokens.item())
+    generated_token = tokenizer.decode(generated_token_id)
     res += generated_token
-    if predict_tokens == tokenizer.eos_token_id:
+    if generated_token_id == tokenizer.eos_token_id:
         break
     print(generated_token, end="", flush=True)
 
