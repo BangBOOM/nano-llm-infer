@@ -14,7 +14,7 @@ tokenizer = AutoTokenizer.from_pretrained(base_path)
 with open(config_path, "r", encoding="utf-8") as f:
     qwen3_config = Qwen3_5Config(**{k:v for k,v in json.load(f)["text_config"].items() if k in [field.name for field in fields(Qwen3_5Config)]})
 torch.set_default_device("cpu")
-torch.set_default_dtype(torch.float32)
+torch.set_default_dtype(torch.bfloat16)
 model = Qwen3_5(qwen3_config)
 model.load_weight(model_path)
 model = model.eval()
@@ -47,6 +47,6 @@ while position_id < 100:
     res += generated_token
     if predict_tokens == tokenizer.eos_token_id:
         break
-    print(generated_token, end="", flush=True)
+    print(generated_token, end="=", flush=True)
 
 print("\nDone!!!")
